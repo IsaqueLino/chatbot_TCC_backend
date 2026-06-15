@@ -1,4 +1,5 @@
 import os
+import errno
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import (
@@ -123,8 +124,26 @@ fastapi_app.add_middleware(
 
 # Mount static files for logo storage
 # __file__ está em app/main.py, então parent.parent vai para backend/
-static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
-os.makedirs(os.path.join(static_dir, "logos"), exist_ok=True)
+project_static = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+static_dir = project_static
+try:
+    os.makedirs(os.path.join(static_dir, "logos"), exist_ok=True)
+except OSError as e:
+    if getattr(e, "errno", None) == errno.EROFS:
+        # Read-only filesystem (e.g. Vercel). Try using /tmp/static as a fallback.
+        if os.environ.get("VERCEL"):
+            static_dir = "/tmp/static"
+            os.makedirs(os.path.join(static_dir, "logos"), exist_ok=True)
+        else:
+            # Not on Vercel but still hit read-only; attempt /tmp as a best-effort fallback.
+            static_dir = "/tmp/static"
+            try:
+                os.makedirs(os.path.join(static_dir, "logos"), exist_ok=True)
+            except Exception:
+                pass
+    else:
+        raise
+
 fastapi_app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # Include API router
