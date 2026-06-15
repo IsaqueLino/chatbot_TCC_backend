@@ -45,6 +45,7 @@ class DatabaseService:
                     pool_timeout=pool_timeout,
                     pool_recycle=pool_recycle,
                     echo=settings.DATABASE_ECHO,
+                    connect_args={"statement_cache_size": 0},
                 )
             except ModuleNotFoundError as e:
                 # Commonly raised when the async DB driver (e.g., asyncpg) is missing.
