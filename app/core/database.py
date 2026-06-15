@@ -144,3 +144,12 @@ def get_engine() -> Engine:
         SQLAlchemy engine
     """
     return db_manager.engine
+
+
+def get_session() -> Generator[Session, None, None]:
+    """Backward-compatible alias for `get_db`.
+
+    Some modules import `get_session` from `app.core.database`.
+    Keep this alias so older import sites continue to work.
+    """
+    yield from get_db()
