@@ -17,6 +17,7 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "bcrypt>=4.1.0",
     "python-multipart>=0.0.6",
+    "psycopg[binary]",
     
     "pgvector>=0.2.0",
     "redis>=5.0.0",
