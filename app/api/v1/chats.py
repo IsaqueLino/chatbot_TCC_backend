@@ -1,5 +1,6 @@
 from typing import List
 import uuid
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.chat import Chat
 from app.models.message import Message
+from app.models.sensor import SensorData
 from app.schemas.chat import ChatCreate, ChatRead
 from app.schemas.message import MessageCreate, MessageRead
 from app.core.LLMs.agents.chatbot.agent import LangGraphAgent
@@ -63,28 +65,53 @@ def fetch_messages(chat_id: uuid.UUID, db: Session = Depends(get_db)):
 
 @router.post("/{chat_id}/messages", response_model=List[MessageRead])
 async def post_message(chat_id: uuid.UUID, payload: MessageCreate, db: Session = Depends(get_db)):
-    # Create and persist user message
     user_msg = Message(chat_id=chat_id, role=payload.role, content=payload.content)
     db.add(user_msg)
     db.commit()
     db.refresh(user_msg)
 
-    # Call the LLM agent to generate an assistant response
+    history = (
+        db.query(Message)
+        .filter(Message.chat_id == chat_id)
+        .order_by(Message.created_at.asc())
+        .limit(40)
+        .all()
+    )
+    agent_input = [MessageCreate(role=m.role, content=m.content) for m in history]
+
+    sensor_rows = (
+        db.query(SensorData)
+        .order_by(SensorData.created_at.desc())
+        .limit(60)
+        .all()
+    )
+    context = ""
+    if sensor_rows:
+        by_device = {}
+        for row in sensor_rows:
+            by_device.setdefault(row.device_id, []).append(row)
+        lines = ["Dados recentes dos sensores (mais recente primeiro):"]
+        for dev, readings in by_device.items():
+            lines.append(f"\nDispositivo: {dev}")
+            for r in readings[:20]:
+                ts = r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "N/A"
+                lines.append(
+                    f"  {ts}: Temp={r.temperature}°C, UmidAr={r.air_humidity}%, "
+                    f"UmidSolo={r.soil_moisture}%, pH={r.ph}"
+                )
+        context = "\n".join(lines)
+
     try:
         agent = LangGraphAgent()
-        # Use the pydantic schema for messages so the agent sees .role and .content
-        agent_input = [MessageCreate(role=payload.role, content=payload.content)]
-        resp = await agent.get_response(agent_input, session_id=str(chat_id), user_id=None)
+        resp = await agent.get_response(agent_input, session_id=str(chat_id), context=context)
         assistant_content = resp.get('response') if isinstance(resp, dict) else None
         if not assistant_content:
-            assistant_content = f"Resposta automática: {payload.content}"
+            assistant_content = "Desculpe, não consegui processar sua solicitação."
     except Exception as e:
-        # Log and fallback to simple echo so the endpoint remains functional
         from app.core.logger import logger
         import traceback
-        tb = traceback.format_exc()
-        logger.error('agent_error', extra={'error': str(e), 'trace': tb})
-        assistant_content = f"Resposta automática: {payload.content}"
+        logger.error('agent_error', extra={'error': str(e), 'trace': traceback.format_exc()})
+        assistant_content = "Desculpe, ocorreu um erro ao processar sua solicitação."
 
     assistant_msg = Message(chat_id=chat_id, role="assistant", content=assistant_content)
     db.add(assistant_msg)

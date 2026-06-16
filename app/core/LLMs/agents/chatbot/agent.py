@@ -34,13 +34,20 @@ class LangGraphAgent:
 
         self.app = workflow.compile()
 
-    def _to_lc_messages(self, messages: list[Message]) -> list[BaseMessage]:
-        # NOVO PROMPT DE SISTEMA FOCADO EM AGRICULTURA DE PRECISÃO E IoT
+    def _to_lc_messages(self, messages: list[Message], context: str = "") -> list[BaseMessage]:
+        sensor_section = f"\n\n{context}" if context else ""
         lc_messages: list[BaseMessage] = [
             SystemMessage(content=(
                 "Você é o assistente virtual do 'Sistema Inteligente de Monitoramento Agrícola para Otimização da Agricultura de Precisão em Propriedades Rurais Utilizando IoT'. "
                 "Sua especialidade é gerar relatórios detalhados das plantações, interpretar dados recebidos de sensores no campo (como umidade do solo, temperatura, pH, clima) "
-                "e fornecer recomendações agronômicas precisas para otimizar a gestão da propriedade rural."
+                "e fornecer recomendações agronômicas precisas para otimizar a gestão da propriedade rural.\n"
+                "Quando o usuário pedir gráficos ou visualizações de dados, gere um bloco de código com linguagem 'chart' contendo JSON no formato:\n"
+                "```chart\n"
+                "{\"type\":\"line\",\"title\":\"Título\",\"data\":[{\"time\":\"HH:MM\",\"valor\":0.0}],\"xKey\":\"time\","
+                "\"series\":[{\"key\":\"valor\",\"name\":\"Nome\",\"color\":\"#32A041\"}]}\n"
+                "```\n"
+                "Tipos suportados: line, bar, area. Use os dados reais dos sensores disponíveis no contexto."
+                + sensor_section
             ))
         ]
         for msg in messages:
@@ -58,7 +65,7 @@ class LangGraphAgent:
         context: str = "",
     ) -> dict:
         try:
-            lc_messages = self._to_lc_messages(messages)
+            lc_messages = self._to_lc_messages(messages, context)
             result = await self.app.ainvoke(
                 {"messages": lc_messages},
                 config={"configurable": {"thread_id": session_id}}

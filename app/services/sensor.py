@@ -1,4 +1,4 @@
-from sqlmodel import Session, select
+from sqlalchemy.orm import Session
 from typing import List
 from app.models.sensor import SensorData
 from app.schemas.sensor import SensorDataCreate
@@ -15,5 +15,22 @@ class SensorService:
         return db_data
 
     def get_sensor_data_by_device(self, device_id: str, limit: int = 100) -> List[SensorData]:
-        statement = select(SensorData).where(SensorData.device_id == device_id).order_by(SensorData.created_at.desc()).limit(limit)
-        return self.session.exec(statement).all()
+        return (
+            self.session.query(SensorData)
+            .filter(SensorData.device_id == device_id)
+            .order_by(SensorData.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def get_all_sensor_data(self, limit: int = 200) -> List[SensorData]:
+        return (
+            self.session.query(SensorData)
+            .order_by(SensorData.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def get_devices(self) -> List[str]:
+        rows = self.session.query(SensorData.device_id).distinct().all()
+        return [row[0] for row in rows]

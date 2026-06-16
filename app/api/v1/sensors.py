@@ -12,6 +12,16 @@ def create_sensor_data(data_in: SensorDataCreate, session: Session = Depends(get
     service = SensorService(session)
     return service.create_sensor_data(data_in)
 
+@router.get("/data", response_model=List[SensorDataRead])
+def get_all_sensor_data(limit: int = 200, session: Session = Depends(get_session)):
+    service = SensorService(session)
+    return service.get_all_sensor_data(limit)
+
+@router.get("/devices", response_model=List[str])
+def get_devices(session: Session = Depends(get_session)):
+    service = SensorService(session)
+    return service.get_devices()
+
 @router.get("/data/{device_id}", response_model=List[SensorDataRead])
 def get_sensor_data(device_id: str, limit: int = 100, session: Session = Depends(get_session)):
     service = SensorService(session)
