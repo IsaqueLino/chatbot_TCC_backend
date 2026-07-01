@@ -1,6 +1,7 @@
 from typing import List
 import uuid
 import json
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -14,6 +15,61 @@ from app.schemas.message import MessageCreate, MessageRead
 from app.core.LLMs.agents.chatbot.agent import LangGraphAgent
 
 router = APIRouter()
+
+
+def _asks_for_chart(text: str) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    keywords = ["grafico", "gráfico", "chart", "plot", "visualizacao", "visualização"]
+    return any(k in lowered for k in keywords)
+
+
+def _has_chart_block(text: str) -> bool:
+    if not text:
+        return False
+    return bool(re.search(r"```\s*chart", text, flags=re.IGNORECASE))
+
+
+def _build_chart_block(sensor_rows: list[SensorData]) -> str | None:
+    if not sensor_rows:
+        return None
+
+    # Use one device (most recent) to keep the chart readable.
+    target_device = sensor_rows[0].device_id
+    device_rows = [r for r in sensor_rows if r.device_id == target_device][:20]
+    if not device_rows:
+        return None
+
+    # Show oldest -> newest on x-axis.
+    device_rows.reverse()
+
+    chart_data = []
+    for r in device_rows:
+        ts = r.created_at.strftime("%H:%M") if r.created_at else "N/A"
+        chart_data.append({
+            "time": ts,
+            "temperatura": round(float(r.temperature), 2),
+            "umidadeAr": round(float(r.air_humidity), 2),
+            "umidadeSolo": round(float(r.soil_moisture), 2),
+            "ph": round(float(r.ph), 2),
+        })
+
+    payload = {
+        "type": "line",
+        "title": f"Tendência dos sensores - {target_device}",
+        "data": chart_data,
+        "xKey": "time",
+        "series": [
+            {"key": "temperatura", "name": "Temperatura (°C)", "color": "#db3a34"},
+            {"key": "umidadeAr", "name": "Umidade do Ar (%)", "color": "#1d6fa4"},
+            {"key": "umidadeSolo", "name": "Umidade do Solo (%)", "color": "#2f9e44"},
+            {"key": "ph", "name": "pH", "color": "#9b59b6"},
+        ],
+    }
+
+    chart_json = json.dumps(payload, ensure_ascii=False)
+    return f"```chart\n{chart_json}\n```"
 
 
 @router.post("/add_chat", response_model=ChatRead)
@@ -107,6 +163,17 @@ async def post_message(chat_id: uuid.UUID, payload: MessageCreate, db: Session =
         assistant_content = resp.get('response') if isinstance(resp, dict) else None
         if not assistant_content:
             assistant_content = "Desculpe, não consegui processar sua solicitação."
+
+        # Fallback: if user requested a chart and the model did not return one,
+        # append a valid chart block generated from recent sensor data.
+        if _asks_for_chart(payload.content) and not _has_chart_block(assistant_content):
+            chart_block = _build_chart_block(sensor_rows)
+            if chart_block:
+                assistant_content = (
+                    f"{assistant_content}\n\n"
+                    "Gráfico gerado automaticamente com os dados mais recentes:\n"
+                    f"{chart_block}"
+                )
     except Exception as e:
         from app.core.logger import logger
         import traceback
